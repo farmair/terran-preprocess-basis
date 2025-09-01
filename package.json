@@ -1,0 +1,13 @@
+{
+  "name": "lambda-terran-cache-api",
+  "version": "1.0.0",
+  "description": "Lambda function using Node.js and MySQL",
+  "main": "index.js",
+  "dependencies": {
+    "mysql": "^2.18.1",
+    "axios": "^1.6.8",
+    "mysql2": "^3.9.7",
+    "p-limit": "^2.0.0",
+    "aws-sdk": "^2.1390.0"
+  }
+}
