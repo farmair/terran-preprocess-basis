@@ -1,0 +1,167 @@
+name: deploy-preprocessBasis
+
+on:
+  push:
+    branches: [ "live", "test" ]
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-preprocessBasis-${{ github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  AWS_PAGER: ""
+  AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+  ECR_REPO: ${{ vars.ECR_REPO }}                      # 예: terran/preprocess/basis
+  # 브랜치에 따라 대상 람다/별칭 자동 선택
+  LAMBDA_NAME: ${{ github.ref_name == 'live' && vars.LAMBDA_LIVE_NAME || vars.LAMBDA_TEST_NAME }}
+  ALIAS_NAME:  ${{ github.ref_name == 'live' && 'live' || 'test' }}
+  TAG_PREFIX:  ${{ github.ref_name }}                 # live-*, test-* 태그 자동 분기
+  ECR_URI: ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/${{ vars.ECR_REPO }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Ensure ECR repository exists (idempotent)
+        run: |
+          aws ecr describe-repositories --repository-names "$ECR_REPO" --region "$AWS_REGION" >/dev/null 2>&1 || \
+          aws ecr create-repository \
+            --repository-name "$ECR_REPO" \
+            --image-scanning-configuration scanOnPush=true \
+            --region "$AWS_REGION"
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up QEMU (arm64 build)
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Derive tags
+        id: vars_step
+        run: |
+          echo "SHA7=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "TAG_IMMUTABLE=${{ env.TAG_PREFIX }}-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "TAG_LATEST=${{ env.TAG_PREFIX }}-latest" >> "$GITHUB_OUTPUT"
+
+      - name: Build (arm64)
+        run: |
+          docker build \
+            --platform linux/arm64 \
+            -t "$ECR_URI:${{ steps.vars_step.outputs.TAG_IMMUTABLE }}" \
+            -t "$ECR_URI:${{ steps.vars_step.outputs.TAG_LATEST }}" \
+            -f ./Dockerfile \
+            .
+
+      - name: Push images
+        run: |
+          docker push "$ECR_URI:${{ steps.vars_step.outputs.TAG_IMMUTABLE }}"
+          docker push "$ECR_URI:${{ steps.vars_step.outputs.TAG_LATEST }}"
+
+      - name: Capture current alias target (for rollback)
+        id: prev
+        continue-on-error: true
+        run: |
+          CURR=$(aws lambda get-alias \
+            --function-name "$LAMBDA_NAME" \
+            --name "$ALIAS_NAME" \
+            --region "$AWS_REGION" \
+            --query 'FunctionVersion' --output text 2>/dev/null || true)
+          echo "PREV_VER=$CURR" >> "$GITHUB_OUTPUT"
+          echo "Previous alias target: ${CURR:-<none>}"
+
+      - name: Update Lambda to new image
+        run: |
+          aws lambda update-function-code \
+            --function-name "$LAMBDA_NAME" \
+            --image-uri "$ECR_URI:${{ steps.vars_step.outputs.TAG_IMMUTABLE }}" \
+            --region "$AWS_REGION" >/dev/null
+
+      - name: Wait for Lambda code update to finish
+        run: |
+          echo "Waiting for LastUpdateStatus=Successful ..."
+          aws lambda wait function-updated \
+            --function-name "$LAMBDA_NAME" \
+            --region "$AWS_REGION"
+          aws lambda get-function-configuration \
+            --function-name "$LAMBDA_NAME" \
+            --region "$AWS_REGION" \
+            --query '[LastUpdateStatus,State,StateReason]' --output table
+
+      - name: Publish version
+        id: publish
+        run: |
+          VER=$(aws lambda publish-version \
+            --function-name "$LAMBDA_NAME" \
+            --region "$AWS_REGION" \
+            --query 'Version' --output text)
+          echo "VER=$VER" >> "$GITHUB_OUTPUT"
+          echo "Published version: $VER"
+
+      - name: Move alias to new version (create if absent)
+        run: |
+          aws lambda update-alias \
+            --function-name "$LAMBDA_NAME" \
+            --name "$ALIAS_NAME" \
+            --function-version "${{ steps.publish.outputs.VER }}" \
+            --region "$AWS_REGION" || \
+          aws lambda create-alias \
+            --function-name "$LAMBDA_NAME" \
+            --name "$ALIAS_NAME" \
+            --function-version "${{ steps.publish.outputs.VER }}" \
+            --region "$AWS_REGION"
+
+      - name: Smoke test (invoke once)
+        id: smoke
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          STATUS=$(aws lambda invoke \
+            --function-name "$LAMBDA_NAME" \
+            --qualifier "$ALIAS_NAME" \
+            --cli-binary-format raw-in-base64-out \
+            --payload '{"type":"smoketest"}' \
+            --region "$AWS_REGION" \
+            --query 'StatusCode' --output text \
+            /tmp/out.json 2>/tmp/invoke.txt || echo "invoke_failed")
+
+          echo "Invoke status: $STATUS"
+          cat /tmp/invoke.txt || true
+          if [ -f /tmp/out.json ]; then cat /tmp/out.json; else echo '{}'; fi
+
+          if [ "$STATUS" != "200" ]; then
+            echo "Non-200 status"; exit 1
+          fi
+          if [ -f /tmp/out.json ] && grep -qiE '"errorType"|\"errorMessage\"|\"Unhandled\"' /tmp/out.json; then
+            echo "Lambda error found in payload"; exit 1
+          fi
+
+      - name: Auto-rollback alias on failure
+        if: steps.smoke.outcome == 'failure'
+        run: |
+          if [ -n "${{ steps.prev.outputs.PREV_VER }}" ] && [ "${{ steps.prev.outputs.PREV_VER }}" != "None" ]; then
+            echo "Rolling back alias '$ALIAS_NAME' to version: ${{ steps.prev.outputs.PREV_VER }}"
+            aws lambda update-alias \
+              --function-name "$LAMBDA_NAME" \
+              --name "$ALIAS_NAME" \
+              --function-version "${{ steps.prev.outputs.PREV_VER }}" \
+              --region "$AWS_REGION"
+          else
+            echo "No previous alias version to roll back to."
+          fi
+          exit 1

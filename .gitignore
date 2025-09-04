@@ -1,0 +1,8 @@
+*.sh
+.*
+/tmp/*
+
+# --- allow dotfiles we actually need ---
+!.gitignore
+!.gitattributes
+!.github/

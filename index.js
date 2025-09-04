@@ -172,11 +172,21 @@ async function handleEachPayload(p, payloadIdx) {
   const failed = results.filter(r => !r || !r.ok);
   return { index: payloadIdx, ok: failed.length === 0, total: results.length, failed: failed.length };
 }
+/* =========================
+ *  (테스트용) smoketest 핸들러
+ * ========================= */
+async function smoketest(event) {   
+
+    return { statusCode: 200, body: JSON.stringify({ message: 'smoketest 202509031027am', event }) };
+}
 
 /* =========================
  *  Lambda 핸들러
  * ========================= */
 exports.handler = async (event/*, context*/) => {
+  if (event.type && event.type === 'smoketest') {
+      return await smoketest(event);
+  }      
   /**
    * (테스트/디버깅용) 슬랙으로 이벤트 객체 전송 후 die (조기 종료)
    * - SLACK_WEBHOOK_URL 환경변수 필요
