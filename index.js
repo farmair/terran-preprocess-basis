@@ -184,9 +184,19 @@ async function smoketest(event) {
  *  Lambda 핸들러
  * ========================= */
 exports.handler = async (event/*, context*/) => {
-  console.log('Received event:', typeof event === 'string' ? event : JSON.stringify(event));
-  
-  return { statusCode: 200, body: JSON.stringify({ message: "완료", event }) };
+  try {
+    const slackPayload = {
+      text: `[Lambda Debug] Received event:\n\`\`\`${typeof event === 'string' ? event : JSON.stringify(event, null, 2)}\`\`\``
+    };
+    await ax.post(process.env.SLACK_WEBHOOK_URL, slackPayload);
+  } catch (err) {
+    console.error('Failed to send event to Slack:', err?.message || err);
+  }
+  // die: 슬랙 전송 후 즉시 종료
+  return {
+    statusCode: 200,
+    body: JSON.stringify({ message: 'Hi, Event sent to Slack for debug. Lambda exited early.' }),
+  };
   
   if (event.type && event.type === 'smoketest') {
       return await smoketest(event);
