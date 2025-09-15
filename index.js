@@ -184,6 +184,10 @@ async function smoketest(event) {
  *  Lambda 핸들러
  * ========================= */
 exports.handler = async (event/*, context*/) => {
+  console.log('Received event:', typeof event === 'string' ? event : JSON.stringify(event));
+  
+  return { statusCode: 200, body: JSON.stringify({ message: "완료", event }) };
+  
   if (event.type && event.type === 'smoketest') {
       return await smoketest(event);
   }      
