@@ -184,46 +184,25 @@ async function smoketest(event) {
  *  Lambda 핸들러
  * ========================= */
 exports.handler = async (event/*, context*/) => {
-  try {
-    const slackPayload = {
-      text: `[Lambda Debug] Received event:\n\`\`\`${typeof event === 'string' ? event : JSON.stringify(event, null, 2)}\`\`\``
-    };
-    await ax.post(process.env.SLACK_WEBHOOK_URL, slackPayload);
-  } catch (err) {
-    console.error('Failed to send event to Slack:', err?.message || err);
-  }
+  // try {
+  //   const slackPayload = {
+  //     text: `[Lambda Debug] Received event:\n\`\`\`${typeof event === 'string' ? event : JSON.stringify(event, null, 2)}\`\`\``
+  //   };
+  //   await ax.post(process.env.SLACK_WEBHOOK_URL, slackPayload);
+  // } catch (err) {
+  //   console.error('Failed to send event to Slack:', err?.message || err);
+  // }
   // die: 슬랙 전송 후 즉시 종료
-  return {
-    statusCode: 200,
-    body: JSON.stringify({ message: 'Hi, Event sent to Slack for debug. Lambda exited early.' }),
-  };
-  
+
   if (event.type && event.type === 'smoketest') {
       return await smoketest(event);
   }      
-  /**
-   * (테스트/디버깅용) 슬랙으로 이벤트 객체 전송 후 die (조기 종료)
-   * - SLACK_WEBHOOK_URL 환경변수 필요
-   */
-  if (process.env.SLACK_WEBHOOK_URL) {
-    try {
-      const slackPayload = {
-        text: `[Lambda Debug] Received event:\n\`\`\`${typeof event === 'string' ? event : JSON.stringify(event, null, 2)}\`\`\``
-      };
-      await ax.post(process.env.SLACK_WEBHOOK_URL, slackPayload);
-    } catch (err) {
-      console.error('Failed to send event to Slack:', err?.message || err);
-    }
-    // die: 슬랙 전송 후 즉시 종료
-    return {
-      statusCode: 200,
-      body: JSON.stringify({ message: 'Hi, Event sent to Slack for debug. Lambda exited early.' }),
-    };
-  }
-  console.log('Received event:', typeof event === 'string' ? event : JSON.stringify(event));
 
   // 1) 이벤트 정규화 → raw payloads
   const rawPayloads = toPayloads(event);
+  console.log('rawPayloads:', JSON.stringify(rawPayloads, null, 2));
+  console.log('rawPayloads type:', Array.isArray(rawPayloads) ? 'array' : typeof rawPayloads);
+
 
   // 2) 기본값 채워 처리 가능한 payload로 변환
   const payloads = [];
