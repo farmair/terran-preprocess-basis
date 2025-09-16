@@ -41,6 +41,8 @@ async function fetchCodeList(codeName) {
  * ========================= */
 function toPayloads(event) {
   let e = event;
+  console.log("이거 찍어봐라 : ", typeof e);
+  
   if (typeof e === 'string') {
     try { e = JSON.parse(e); } catch { /* 문자열 그대로 두되 아래 분기에서 처리 */ }
   }
@@ -199,17 +201,16 @@ exports.handler = async (event/*, context*/) => {
   }      
 
   // 1) 이벤트 정규화 → raw payloads
-  const rawPayloads = toPayloads(event);
-  console.log('event:', typeof event === 'string' ? event : JSON.stringify(event, null, 2));
-  console.log('rawPayloads:', JSON.stringify(rawPayloads, null, 2));
-  console.log('rawPayloads type:', Array.isArray(rawPayloads) ? 'array' : typeof rawPayloads);
-  return "debbug ending";
+  const rawPayloads = toPayloads(JSON.stringify(event, null, 2));
+
 
   // 2) 기본값 채워 처리 가능한 payload로 변환
   const payloads = [];
   for (let i = 0; i < rawPayloads.length; i++) {
     payloads.push(await fillWithDynamicDefaults(rawPayloads[i]));
   }
+
+  return payloads;
 
   // 3) payload 단위 처리: Promise.all로 병렬 실행
   const results = await Promise.all(
