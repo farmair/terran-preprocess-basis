@@ -42,7 +42,7 @@ async function fetchCodeList(codeName) {
 function toPayloads(event) {
   let e = event;
   console.log("이거 찍어봐라 : ", typeof e);
-  
+
   if (typeof e === 'string') {
     try { e = JSON.parse(e); } catch { /* 문자열 그대로 두되 아래 분기에서 처리 */ }
   }
@@ -186,20 +186,11 @@ async function smoketest(event) {
  *  Lambda 핸들러
  * ========================= */
 exports.handler = async (event/*, context*/) => {
-  // try {
-  //   const slackPayload = {
-  //     text: `[Lambda Debug] Received event:\n\`\`\`${typeof event === 'string' ? event : JSON.stringify(event, null, 2)}\`\`\``
-  //   };
-  //   await ax.post(process.env.SLACK_WEBHOOK_URL, slackPayload);
-  // } catch (err) {
-  //   console.error('Failed to send event to Slack:', err?.message || err);
-  // }
-  // die: 슬랙 전송 후 즉시 종료
 
   if (event.type && event.type === 'smoketest') {
       return await smoketest(event);
   }      
-
+  console.log("시팔이거찍어봐 : ", typeof event);
   // 1) 이벤트 정규화 → raw payloads
   const rawPayloads = toPayloads(JSON.stringify(event, null, 2));
 
