@@ -200,9 +200,10 @@ exports.handler = async (event/*, context*/) => {
 
   // 1) 이벤트 정규화 → raw payloads
   const rawPayloads = toPayloads(event);
+  console.log('event:', typeof event === 'string' ? event : JSON.stringify(event, null, 2));
   console.log('rawPayloads:', JSON.stringify(rawPayloads, null, 2));
   console.log('rawPayloads type:', Array.isArray(rawPayloads) ? 'array' : typeof rawPayloads);
-
+  return "debbug ending";
 
   // 2) 기본값 채워 처리 가능한 payload로 변환
   const payloads = [];
